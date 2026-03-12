@@ -160,6 +160,39 @@ class ActionItemUpdate(BaseModel):
     priority: Optional[str] = None
 
 
+# ── Documents ──
+
+class DocumentBase(BaseModel):
+    title: Optional[str] = None
+    language: str = "en"
+
+class DocumentCreate(DocumentBase):
+    pass
+
+class DocumentOut(DocumentBase):
+    id: str
+    filename: str
+    file_type: str
+    status: str
+    summary: Optional[str] = None
+    uploaded_by: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class DocumentChatRequest(BaseModel):
+    question: str
+    language: str = "en"
+
+
+class DocumentChatResponse(BaseModel):
+    answer: str
+    sources: List[dict] = Field(default_factory=list)
+
+
 # ── Chat ──
 
 class ChatRequest(BaseModel):

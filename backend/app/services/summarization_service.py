@@ -4,6 +4,20 @@ from typing import List
 from app.config import settings
 
 
+# Language code → full name for LLM instructions
+LANGUAGE_NAMES = {
+    "en": "English",
+    "hi": "Hindi (हिन्दी)",
+    "mr": "Marathi (मराठी)",
+    "ta": "Tamil (தமிழ்)",
+    "te": "Telugu (తెలుగు)",
+    "bn": "Bengali (বাংলা)",
+    "gu": "Gujarati (ગુજરાતી)",
+    "kn": "Kannada (ಕನ್ನಡ)",
+    "pa": "Punjabi (ਪੰਜਾਬੀ)",
+    "ur": "Urdu (اردو)"
+}
+
 SYSTEM_PROMPT = """You are an expert government meeting summarizer. You produce precise, 
 neutral, formal summaries suitable for official government Minutes of Meeting (MoM) documents. 
 Always maintain a formal, objective tone appropriate for government communication."""
@@ -69,16 +83,22 @@ async def generate_summary(
     language: str = "en",
 ) -> dict:
     """
-    Generate structured meeting summary using LLM.
+    Generate structured meeting summary using LLM in the requested language.
     Uses prompt chaining: extract facts → structure → refine.
     """
+    lang_name = LANGUAGE_NAMES.get(language, "English")
+    lang_instruction = f"IMPORTANT: Write your ENTIRE response in {lang_name}. All summaries, key points, decisions, and action items MUST be written in {lang_name} only.\n\n" if language != "en" else ""
+    
+    # Language-aware system prompt
+    system_prompt_localized = SYSTEM_PROMPT + (f" Always respond in {lang_name}." if language != "en" else "")
+    
     attendees_str = ", ".join(
         f"{a.get('name', '')} ({a.get('designation', '')})"
         for a in attendees
     ) if attendees else "Not specified"
 
     # Step 1: Extract structured facts
-    facts_prompt = EXTRACT_FACTS_PROMPT.format(
+    facts_prompt = lang_instruction + EXTRACT_FACTS_PROMPT.format(
         title=meeting_title,
         date=meeting_date,
         venue=venue,
@@ -86,7 +106,7 @@ async def generate_summary(
         transcript=transcript[:15000],  # Limit transcript length
     )
 
-    facts_response = await _call_llm(SYSTEM_PROMPT, facts_prompt)
+    facts_response = await _call_llm(system_prompt_localized, facts_prompt)
 
     # Parse JSON from LLM response
     try:
@@ -106,15 +126,11 @@ async def generate_summary(
     # Step 2: Generate type-specific output
     raw_text = ""
     if summary_type == "executive":
-        raw_text = await _call_llm(
-            SYSTEM_PROMPT,
-            EXECUTIVE_PROMPT.format(data=json.dumps(structured, indent=2))
-        )
+        exec_prompt = lang_instruction + EXECUTIVE_PROMPT.format(data=json.dumps(structured, indent=2))
+        raw_text = await _call_llm(system_prompt_localized, exec_prompt)
     elif summary_type == "verbatim":
-        verbatim_response = await _call_llm(
-            SYSTEM_PROMPT,
-            VERBATIM_PROMPT.format(transcript=transcript[:15000])
-        )
+        verbatim_prompt = lang_instruction + VERBATIM_PROMPT.format(transcript=transcript[:15000])
+        verbatim_response = await _call_llm(system_prompt_localized, verbatim_prompt)
         try:
             verbatim_data = _parse_json(verbatim_response)
             structured["verbatim_highlights"] = verbatim_data.get("highlights", [])
@@ -123,11 +139,12 @@ async def generate_summary(
         raw_text = verbatim_response
     else:
         # Detailed: format the structured data as readable text
-        raw_text = _format_detailed(structured)
+        raw_text = _format_detailed(structured, language=language)
 
     return {
         "structured": structured,
         "raw_text": raw_text,
+        "language": language,
     }
 
 
@@ -221,8 +238,8 @@ def _parse_json(text: str) -> dict:
     return json.loads(text)
 
 
-def _format_detailed(data: dict) -> str:
-    """Format structured data as readable detailed summary."""
+def _format_detailed(data: dict, language: str = "en") -> str:
+    """Format structured data as readable detailed summary in the given language."""
     lines = []
     lines.append(f"Meeting Summary Report")
     lines.append("=" * 50)

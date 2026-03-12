@@ -25,7 +25,7 @@ app.add_middleware(
 )
 
 # ── Register routers ──
-from app.routers import auth, meetings, transcription, summary, actions, chat, export
+from app.routers import auth, meetings, transcription, summary, actions, chat, export, documents
 
 app.include_router(auth.router)
 app.include_router(meetings.router)
@@ -34,6 +34,7 @@ app.include_router(summary.router)
 app.include_router(actions.router)
 app.include_router(chat.router)
 app.include_router(export.router)
+app.include_router(documents.router)
 
 
 # ── Startup ──

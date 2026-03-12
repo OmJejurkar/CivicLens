@@ -120,7 +120,7 @@ async def upload_audio(
         raise HTTPException(status_code=404, detail="Meeting not found")
 
     # Validate file type
-    allowed_extensions = {".mp3", ".wav", ".m4a", ".flac", ".mp4", ".mkv", ".webm"}
+    allowed_extensions = {".mp3", ".wav", ".m4a", ".flac", ".mp4", ".mkv", ".webm", ".ogg"}
     ext = os.path.splitext(file.filename)[1].lower()
     if ext not in allowed_extensions:
         raise HTTPException(status_code=400, detail=f"File type {ext} not supported")

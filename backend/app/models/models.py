@@ -22,6 +22,12 @@ class MeetingStatus(str, enum.Enum):
     COMPLETED = "completed"
     FAILED = "failed"
 
+class DocumentStatus(str, enum.Enum):
+    UPLOADED = "uploaded"
+    PROCESSING = "processing"
+    READY = "ready"
+    FAILED = "failed"
+
 
 class ConfidentialityLevel(str, enum.Enum):
     PUBLIC = "public"
@@ -120,6 +126,29 @@ class Meeting(Base):
     transcript_segments = relationship("TranscriptSegment", back_populates="meeting", cascade="all, delete-orphan")
     summaries = relationship("Summary", back_populates="meeting", cascade="all, delete-orphan")
     action_items = relationship("ActionItem", back_populates="meeting", cascade="all, delete-orphan")
+
+
+class Document(Base):
+    __tablename__ = "documents"
+
+    id = Column(String, primary_key=True, default=generate_uuid)
+    filename = Column(String(500), nullable=False)
+    title = Column(String(500), nullable=True)
+    file_path = Column(String(1000), nullable=False)
+    file_type = Column(String(50), nullable=False)  # pdf, docx, txt
+    status = Column(Enum(DocumentStatus), default=DocumentStatus.UPLOADED)
+    summary = Column(Text, nullable=True)
+    language = Column(String(50), default="en")
+
+    # Foreign keys
+    uploaded_by = Column(String, ForeignKey("users.id"), nullable=True)
+
+    # Timestamps
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    # Relationships
+    uploader = relationship("User")
 
 
 class TranscriptSegment(Base):

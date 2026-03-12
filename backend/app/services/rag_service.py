@@ -80,3 +80,185 @@ Provide a clear, sourced answer. Cite specific speakers and what they said."""
         "answer": answer,
         "sources": sources,
     }
+
+# ── Document RAG (LangChain + ChromaDB) ──
+
+import os
+import logging
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from langchain_chroma import Chroma
+from langchain_core.prompts import PromptTemplate
+
+logger = logging.getLogger(__name__)
+
+# Initialize embeddings model locally
+embeddings_model = HuggingFaceEmbeddings(
+    model_name="all-MiniLM-L6-v2",
+    model_kwargs={'device': 'cpu'},
+    encode_kwargs={'normalize_embeddings': True}
+)
+
+def get_chroma_db(collection_name: str = "documents") -> Chroma:
+    """Get the ChromaDB vector store instance."""
+    persist_dir = settings.chroma_persist_dir
+    os.makedirs(persist_dir, exist_ok=True)
+    return Chroma(
+        collection_name=collection_name,
+        embedding_function=embeddings_model,
+        persist_directory=persist_dir
+    )
+
+async def index_document(document_id: str, text: str, doc_metadata: dict = None) -> int:
+    """Split extracted text into chunks and store in ChromaDB."""
+    if not text.strip():
+        logger.warning(f"No text to index for document {document_id}")
+        return 0
+
+    # 1. Chunking
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=1000,
+        chunk_overlap=200,
+        length_function=len
+    )
+    chunks = text_splitter.split_text(text)
+    
+    # 2. Add metadata
+    metadatas = []
+    base_meta = {"document_id": document_id}
+    if doc_metadata:
+        base_meta.update(doc_metadata)
+        
+    for i, _ in enumerate(chunks):
+        chunk_meta = base_meta.copy()
+        chunk_meta["chunk_index"] = i
+        metadatas.append(chunk_meta)
+
+    # 3. Store in Vector DB
+    vector_db = get_chroma_db()
+    vector_db.add_texts(texts=chunks, metadatas=metadatas)
+    
+    return len(chunks)
+
+
+async def ask_document_question(
+    document_id: str,
+    question: str,
+    language: str = "en",
+    top_k: int = 4
+) -> dict:
+    """Retrieve relevant chunks from ChromaDB and answer a question."""
+    
+    # 1. Retrieve context
+    vector_db = get_chroma_db()
+    
+    # Filter by document_id
+    search_kwargs = {
+        "k": top_k, 
+        "filter": {"document_id": document_id}
+    }
+    
+    retriever = vector_db.as_retriever(search_kwargs=search_kwargs)
+    docs = retriever.invoke(question)
+    
+    if not docs:
+        return {
+            "answer": "I could not find relevant information in this document to answer your question.",
+            "sources": []
+        }
+    
+    context = "\n\n".join([f"--- Chunk {i+1} ---\n{doc.page_content}" for i, doc in enumerate(docs)])
+    
+    # 2. Build Prompt
+    system_prompt = "You are a highly capable AI assistant helping analyze an uploaded document."
+    user_prompt = f"""Use the following pieces of retrieved context to answer the question at the end. 
+Keep the answer concise but thorough. If you don't know the answer based on the context, just say that you don't know, don't try to make up an answer.
+
+CONTEXT:
+{context}
+
+QUESTION: {question}
+
+Helpful Answer:"""
+
+    # 3. Call LLM
+    from app.services.summarization_service import _call_llm
+    answer = await _call_llm(system_prompt, user_prompt)
+    
+    # 4. Format Sources
+    sources = []
+    for i, doc in enumerate(docs):
+        sources.append({
+            "text": doc.page_content[:200] + "...",  # truncated snippet
+            "chunk_index": doc.metadata.get("chunk_index", i),
+            "relevance": "High"
+        })
+        
+    return {
+        "answer": answer,
+        "sources": sources
+    }
+
+
+async def ask_global_document_question(
+    question: str,
+    language: str = "en",
+    top_k: int = 5
+) -> dict:
+    """Retrieve relevant chunks from ALL documents in ChromaDB and answer a question."""
+    
+    # 1. Retrieve context
+    vector_db = get_chroma_db()
+    
+    # No filter, search across all documents
+    search_kwargs = {
+        "k": top_k
+    }
+    
+    retriever = vector_db.as_retriever(search_kwargs=search_kwargs)
+    docs = retriever.invoke(question)
+    
+    if not docs:
+        return {
+            "answer": "I could not find any information in your documents to answer your question. Please ensure you have uploaded and processed some documents first.",
+            "sources": []
+        }
+    
+    # Context with document source info
+    context_parts = []
+    for i, doc in enumerate(docs):
+        filename = doc.metadata.get("filename", "Unknown Document")
+        context_parts.append(f"--- Context Segment {i+1} (Source: {filename}) ---\n{doc.page_content}")
+    
+    context = "\n\n".join(context_parts)
+    
+    # 2. Build Prompt
+    system_prompt = "You are a professional Governance Assistant. Answer questions based on the provided document context from multiple official files."
+    user_prompt = f"""You are analyzing a set of government documents. Use the provided context segments to answer the question.
+If the information is not present, clearly state that. If different documents say different things, please highlight that.
+
+CONTEXT:
+{context}
+
+QUESTION: {question}
+
+Detailed Answer:"""
+
+    # 3. Call LLM
+    from app.services.summarization_service import _call_llm
+    answer = await _call_llm(system_prompt, user_prompt)
+    
+    # 4. Format Sources
+    sources = []
+    for i, doc in enumerate(docs):
+        sources.append({
+            "text": doc.page_content[:200] + "...",
+            "filename": doc.metadata.get("filename", "Unknown"),
+            "document_id": doc.metadata.get("document_id"),
+            "relevance": "High"
+        })
+        
+    return {
+        "answer": answer,
+        "sources": sources
+    }

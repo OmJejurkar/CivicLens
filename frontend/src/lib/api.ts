@@ -99,6 +99,15 @@ class ApiClient {
     return this.request<any>(`/meetings/${id}`, { method: 'DELETE' });
   }
 
+  async uploadMeetingAudio(meetingId: string, file: File) {
+    const formData = new FormData();
+    formData.append('file', file);
+    return this.request<any>(`/meetings/${meetingId}/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
   async uploadAudio(meetingId: string, file: File) {
     const formData = new FormData();
     formData.append('file', file);
@@ -168,6 +177,40 @@ class ApiClient {
   // ── Chat ──
   async chat(meetingId: string, question: string, language: string = 'en') {
     return this.request<{answer: string; sources: any[]}>(`/meetings/${meetingId}/chat`, {
+      method: 'POST',
+      body: { question, language },
+    });
+  }
+
+  // ── Documents ──
+  async getDocuments() {
+    return this.request<any[]>('/api/documents/');
+  }
+
+  async getDocument(id: string) {
+    return this.request<any>(`/api/documents/${id}`);
+  }
+
+  async uploadDocument(file: File, title?: string, language: string = 'en') {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (title) formData.append('title', title);
+    formData.append('language', language);
+    return this.request<any>('/api/documents/upload', {
+      method: 'POST',
+      body: formData,
+    });
+  }
+
+  async chatWithDocument(documentId: string, question: string, language: string = 'en') {
+    return this.request<any>(`/api/documents/${documentId}/chat`, {
+      method: 'POST',
+      body: { question, language },
+    });
+  }
+
+  async globalAssistantChat(question: string, language: string = 'en') {
+    return this.request<any>('/api/documents/assistant/chat', {
       method: 'POST',
       body: { question, language },
     });
